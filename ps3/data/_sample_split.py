@@ -14,7 +14,7 @@ def create_sample_split(df, id_column, training_frac=0.8):
     id_column : str
         Name of ID column
     training_frac : float, optional
-        Fraction to use for training, by default 0.9
+        Fraction to use for training, by default 0.8
 
     Returns
     -------
@@ -22,4 +22,16 @@ def create_sample_split(df, id_column, training_frac=0.8):
         Training data with sample column containing train/test split based on IDs.
     """
 
+    # After some initial investigation, the column IDpol is a good candidate for the ID column.
+    # This is of type int64
+
+    # List of ID's for the training set
+    all_ids = df[id_column].unique()
+    np.random.seed(42)
+    training_ids = np.random.choice(
+        all_ids, size=int(len(all_ids) * training_frac), replace=False
+    )
+
+    # Create a new column in the dataframe to indicate if the row is in the training set
+    df["sample"] = df[id_column].isin(training_ids)
     return df
