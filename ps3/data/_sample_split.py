@@ -33,5 +33,6 @@ def create_sample_split(df, id_column, training_frac=0.8):
     )
 
     # Create a new column in the dataframe to indicate if the row is in the training set
-    df["sample"] = df[id_column].isin(training_ids)
+    # Set equal to 'train' if in training set, 'test' otherwise
+    df["sample"] = np.where(df[id_column].isin(training_ids) == True, "train", "test")
     return df

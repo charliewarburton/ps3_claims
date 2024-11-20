@@ -14,6 +14,12 @@ from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScal
 from ps3.data import create_sample_split, load_transform
 
 # %%
+import ps3.data._sample_split as sample_split
+from importlib import reload
+
+reload(sample_split)
+
+# %%
 # load data
 df = load_transform()
 
@@ -23,10 +29,15 @@ weight = df["Exposure"].values
 df["PurePremium"] = df["ClaimAmountCut"] / df["Exposure"]
 y = df["PurePremium"]
 # TODO: Why do you think, we divide by exposure here to arrive at our outcome variable?
+# Exposure - How long (in years) policy held
+# ClaimAmountCut - Total (cut) claim amount per policy
 
+# PurePremium - Cost to insurer per year of the policy.
+
+# So to get Pure Premium need to divide claim amount by exposure
 
 # TODO: use your create_sample_split function here
-# df = create_sample_split(...)
+df = sample_split.create_sample_split(df, "IDpol", 0.8)
 train = np.where(df["sample"] == "train")
 test = np.where(df["sample"] == "test")
 df_train = df.iloc[train].copy()
@@ -77,10 +88,10 @@ print(
 )
 # %%
 # TODO: Let's add splines for BonusMalus and Density and use a Pipeline.
-# Steps: 
-# 1. Define a Pipeline which chains a StandardScaler and SplineTransformer. 
-#    Choose knots="quantile" for the SplineTransformer and make sure, we 
-#    are only including one intercept in the final GLM. 
+# Steps:
+# 1. Define a Pipeline which chains a StandardScaler and SplineTransformer.
+#    Choose knots="quantile" for the SplineTransformer and make sure, we
+#    are only including one intercept in the final GLM.
 # 2. Put the transforms together into a ColumnTransformer. Here we use OneHotEncoder for the categoricals.
 # 3. Chain the transforms together with the GLM in a Pipeline.
 
@@ -165,14 +176,12 @@ print(
 # TODO: Let's tune the LGBM to reduce overfitting.
 # Steps:
 # 1. Define a `GridSearchCV` object with our lgbm pipeline/estimator. Tip: Parameters for a specific step of the pipeline
-# can be passed by <step_name>__param. 
+# can be passed by <step_name>__param.
 
 # Note: Typically we tune many more parameters and larger grids,
 # but to save compute time here, we focus on getting the learning rate
 # and the number of estimators somewhat aligned -> tune learning_rate and n_estimators
-cv = GridSearchCV(
-
-)
+cv = GridSearchCV()
 cv.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
 
 df_test["pp_t_lgbm"] = cv.best_estimator_.predict(X_test_t)
