@@ -99,12 +99,35 @@ print(
 numeric_cols = ["BonusMalus", "Density"]
 preprocessor = ColumnTransformer(
     transformers=[
-        # TODO: Add numeric transforms here
+        (
+            "num",
+            Pipeline(
+                steps=[
+                    ("scaler", StandardScaler()),
+                    (
+                        "spline",
+                        SplineTransformer(
+                            knots="quantile", n_knots=4, degree=3, include_bias=False
+                        ),
+                    ),
+                ]
+            ),
+            numeric_cols,
+        ),
         ("cat", OneHotEncoder(sparse_output=False, drop="first"), categoricals),
     ]
 )
 preprocessor.set_output(transform="pandas")
 model_pipeline = Pipeline(
+    steps=[
+        ("preprocessor", preprocessor),
+        (
+            "estimate",
+            GeneralizedLinearRegressor(
+                family=TweedieDist, l1_ratio=1, fit_intercept=True
+            ),
+        ),
+    ]
     # TODO: Define pipeline steps here
 )
 
@@ -154,6 +177,10 @@ print(
 # Steps
 # 1: Define the modelling pipeline. Tip: This can simply be a LGBMRegressor based on X_train_t from before.
 # 2. Make sure we are choosing the correct objective for our estimator.
+
+lgbm_estimate = LGBMRegressor(objective="tweedie")
+
+model_pipeline = Pipeline(steps=[("estimate", lgbm_estimate)])
 
 model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
 df_test["pp_t_lgbm"] = model_pipeline.predict(X_test_t)
