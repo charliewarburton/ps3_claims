@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from ps3.preprocessing._winsorizer import Winsorizer
 
 # TODO: Test your implementation of a simple Winsorizer
