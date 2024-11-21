@@ -10,7 +10,6 @@ from sklearn.metrics import auc
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
-
 from ps3.data import create_sample_split, load_transform
 
 # %%
@@ -88,14 +87,23 @@ print(
 numeric_cols = ["BonusMalus", "Density"]
 preprocessor = ColumnTransformer(
     transformers=[
-        # TODO: Add numeric transforms here
+        ("bonusmalus", Pipeline([
+            ("scaler", StandardScaler()),
+            ("spline", SplineTransformer(n_knots=5, degree=3, knots="quantile", include_bias=False))
+        ]), ["BonusMalus"]),
+        ("density", Pipeline([
+            ("log", FunctionTransformer(np.log)),
+            ("scaler", StandardScaler()),
+            ("spline", SplineTransformer(n_knots=5, degree=3, knots="quantile", include_bias=False))
+        ]), ["Density"]),
         ("cat", OneHotEncoder(sparse_output=False, drop="first"), categoricals),
     ]
 )
 preprocessor.set_output(transform="pandas")
-model_pipeline = Pipeline(
-    # TODO: Define pipeline steps here
-)
+model_pipeline = Pipeline([
+    ("preprocessor", preprocessor),
+    ("estimate", GeneralizedLinearRegressor(family=TweedieDist, l1_ratio=1, fit_intercept=True))
+])
 
 # let's have a look at the pipeline
 model_pipeline
@@ -141,12 +149,22 @@ print(
 # %%
 # TODO: Let's use a GBM instead as an estimator.
 # Steps
-# 1: Define the modelling pipeline. Tip: This can simply be a LGBMRegressor based on X_train_t from before.
+# 1: Define the modelling pipeline. Tip: This can simply be a LGBMRegressor based on X 
 # 2. Make sure we are choosing the correct objective for our estimator.
 
-model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
-df_test["pp_t_lgbm"] = model_pipeline.predict(X_test_t)
-df_train["pp_t_lgbm"] = model_pipeline.predict(X_train_t)
+model_pipeline_lgbm = Pipeline([
+    ("estimate", LGBMRegressor(
+        objective='tweedie',  # Using tweedie objective for insurance claims
+        tweedie_variance_power=1.5,  # Common value for insurance claims
+        n_estimators=100,
+        learning_rate=0.1
+    ))
+])
+
+model_pipeline_lgbm.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
+df_test["pp_t_lgbm"] = model_pipeline_lgbm.predict(X_test_t)
+df_train["pp_t_lgbm"] = model_pipeline_lgbm.predict(X_train_t)
+
 print(
     "training loss t_lgbm:  {}".format(
         TweedieDist.deviance(y_train_t, df_train["pp_t_lgbm"], sample_weight=w_train_t)
@@ -171,10 +189,22 @@ print(
 # but to save compute time here, we focus on getting the learning rate
 # and the number of estimators somewhat aligned -> tune learning_rate and n_estimators
 cv = GridSearchCV(
-
+    estimator=LGBMRegressor(
+        objective='tweedie',
+        tweedie_variance_power=1.5
+    ),
+    param_grid={
+        'learning_rate': [0.01, 0.1, 0.3],
+        'n_estimators': [50, 100, 200]
+    },
+    cv=5,
+    scoring='neg_mean_squared_error'
 )
-cv.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
 
+# Fit the grid search
+cv.fit(X_train_t, y_train_t, sample_weight=w_train_t)
+
+# Use best model for predictions
 df_test["pp_t_lgbm"] = cv.best_estimator_.predict(X_test_t)
 df_train["pp_t_lgbm"] = cv.best_estimator_.predict(X_train_t)
 
