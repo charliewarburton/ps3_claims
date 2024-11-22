@@ -20,7 +20,7 @@ from sklearn.metrics import auc
 from lightgbm import LGBMRegressor
 from glum import GeneralizedLinearRegressor
 from glum import TweedieDistribution
-from data import _sample_split, _load_transform
+from ps3.data import _sample_split, _load_transform
 
 # %%
 # load data
