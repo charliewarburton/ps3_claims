@@ -22,10 +22,15 @@ weight = df["Exposure"].values
 df["PurePremium"] = df["ClaimAmountCut"] / df["Exposure"]
 y = df["PurePremium"]
 # TODO: Why do you think, we divide by exposure here to arrive at our outcome variable?
+# Exposure - How long (in years) policy held
+# ClaimAmountCut - Total (cut) claim amount per policy
 
+# PurePremium - Cost to insurer per year of the policy.
+
+# So to get Pure Premium need to divide claim amount by exposure
 
 # TODO: use your create_sample_split function here
-# df = create_sample_split(...)
+df = sample_split.create_sample_split(df, "IDpol", 0.8)
 train = np.where(df["sample"] == "train")
 test = np.where(df["sample"] == "test")
 df_train = df.iloc[train].copy()
