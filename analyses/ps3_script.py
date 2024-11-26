@@ -2,6 +2,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from dask_ml.preprocessing import Categorizer
 from glum import GeneralizedLinearRegressor, TweedieDistribution
 from lightgbm import LGBMRegressor
@@ -307,3 +308,66 @@ ax.legend(loc="upper left")
 plt.plot()
 
 # %%
+#Bin BonusMalus into quantiles (like we did with splines)
+df_test["Quantile"] = pd.cut(df_test["BonusMalus"], bins=4, labels=["B1", "B2", "B3", "B4"])
+
+# Compute weighted average claims for each quantile
+def weighted_avg(group):
+    return np.sum(group["ClaimAmountCut"] * group["Exposure"]) / np.sum(group["Exposure"])
+
+# Apply the weighted average calculation for each quantile
+weighted_average_claims = df_test.groupby("Quantile").apply(weighted_avg).reset_index(name="WeightedClaims")
+
+# Plot the weighted average claims per quantile
+plt.figure(figsize=(8, 5))
+sns.barplot(x="Quantile", y="WeightedClaims", data=weighted_average_claims, palette="viridis")
+plt.title("Weighted Average Claims Across Quantiles of BonusMalus", fontsize=14)
+plt.xlabel("BonusMalus Quantiles", fontsize=12)
+plt.ylabel("Weighted Average Claims", fontsize=12)
+plt.show()
+#Output: See that as BonusMalus increases, average claim increases. If no monotonicty constraint, model could predict decreasing claims as BonusMalus increases
+
+#Check how many features we have in the preprocessor
+preprocessor.fit(X_train_t)
+feature_names = preprocessor.get_feature_names_out()
+print(len(feature_names)) #output: 60
+
+monotone_constraints = [1] + [0] * (len(feature_names) - 1)
+constrained_lgbm = LGBMRegressor(objective="tweedie", tweedie_variance_power=1.5, mc = monotone_constraints,  monotone_constraints_method="basic")
+model_pipeline = Pipeline(
+    steps = [("preprocessor", preprocessor),
+             ("estimate", constrained_lgbm)])
+
+model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
+
+param_grid = {
+    "estimate__learning_rate": [0.01, 0.1],
+    "estimate__n_estimators": [100, 200],
+}
+
+cv = GridSearchCV(model_pipeline, param_grid, cv=5, scoring="neg_mean_poisson_deviance")
+cv.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
+
+df_test["pp_t_lgbm_constrained"] = cv.best_estimator_.predict(X_test_t)
+df_train["pp_t_lgbm_constrained"] = cv.best_estimator_.predict(X_train_t)
+
+print(
+    "training loss t_lgbm_constrained:  {}".format(
+        TweedieDist.deviance(y_train_t, df_train["pp_t_lgbm_constrained"], sample_weight=w_train_t)
+        / np.sum(w_train_t)
+    )
+)
+
+print(
+    "testing loss t_lgbm_constrained:  {}".format(
+        TweedieDist.deviance(y_test_t, df_test["pp_t_lgbm_constrained"], sample_weight=w_test_t)
+        / np.sum(w_test_t)
+    )
+)
+
+print(
+    "Total claim amount on test set, observed = {}, predicted = {}".format(
+        df["ClaimAmountCut"].values[test].sum(),
+        np.sum(df["Exposure"].values[test] * df_test["pp_t_lgbm_constrained"]),
+    )
+)
