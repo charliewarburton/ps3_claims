@@ -2,16 +2,25 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.optimize as optimize
+import scipy.stats
 from dask_ml.preprocessing import Categorizer
-from glum import GeneralizedLinearRegressor, TweedieDistribution
-from lightgbm import LGBMRegressor
+from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import PolynomialFeatures
 from sklearn.compose import ColumnTransformer
-from sklearn.metrics import auc
-from sklearn.model_selection import GridSearchCV
+from sklearn.preprocessing import SplineTransformer
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
-
-from ps3.data import create_sample_split, load_transform
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import FunctionTransformer
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import auc
+from lightgbm import LGBMRegressor
+from glum import GeneralizedLinearRegressor
+from glum import TweedieDistribution
+from ps3.data import _sample_split, _load_transform
 
 # %%
 import ps3.data._sample_split as sample_split
@@ -188,8 +197,9 @@ print(
 # %%
 # TODO: Let's use a GBM instead as an estimator.
 # Steps
-# 1: Define the modelling pipeline. Tip: This can simply be a LGBMRegressor based on X_train_t from before.
+# 1: Define the modelling pipeline. Tip: This can simply be a LGBMRegressor based on X 
 # 2. Make sure we are choosing the correct objective for our estimator.
+
 
 lgbm_estimate = LGBMRegressor(objective="tweedie")
 
@@ -199,6 +209,7 @@ model_pipeline = Pipeline(steps=[("estimate", lgbm_estimate)])
 model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
 df_test["pp_t_lgbm"] = model_pipeline.predict(X_test_t)
 df_train["pp_t_lgbm"] = model_pipeline.predict(X_train_t)
+
 print(
     "training loss t_lgbm:  {}".format(
         TweedieDist.deviance(y_train_t, df_train["pp_t_lgbm"], sample_weight=w_train_t)
@@ -228,8 +239,11 @@ cv = GridSearchCV(
     cv=5,
     scoring="neg_mean_squared_error",
 )
+
+# Fit the grid search
 cv.fit(X_train_t, y_train_t, sample_weight=w_train_t)
 
+# Use best model for predictions
 df_test["pp_t_lgbm"] = cv.best_estimator_.predict(X_test_t)
 df_train["pp_t_lgbm"] = cv.best_estimator_.predict(X_train_t)
 
