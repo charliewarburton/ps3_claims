@@ -96,22 +96,50 @@ print(
 # 3. Chain the transforms together with the GLM in a Pipeline.
 
 # Let's put together a pipeline
-numeric_cols = ["BonusMalus", "Density"]
-preprocessor = ColumnTransformer(
+numeric_cols = [
+    "BonusMalus",
+    "Density",
+]  # Define numeric cols so can apply transformations
+preprocessor = ColumnTransformer(  # Column transformer allows for different transformations for different columns
     transformers=[
-        ("num", Pipeline(steps=[
-            ("scaler", StandardScaler()),
-            ("spline",SplineTransformer(knots="quantile", n_knots=4, degree=3, include_bias=False))
-            ]), numeric_cols),
-        ("cat", OneHotEncoder(sparse_output=False, drop="first"), categoricals),
+        (
+            "num",
+            Pipeline(
+                steps=[
+                    ("scaler", StandardScaler()),  # Converts to Z scores
+                    (
+                        "spline",
+                        SplineTransformer(
+                            knots="quantile", n_knots=4, degree=3, include_bias=False
+                        ),
+                    ),  # Splines allow for non-linear relationships
+                ]
+            ),
+            numeric_cols,
+        ),
+        (
+            "cat",
+            OneHotEncoder(sparse_output=False, drop="first"),
+            categoricals,
+        ),  # One hot encoding for categorical variables
     ]
 )
 preprocessor.set_output(transform="pandas")
+# The pipeline is a sequence of steps.
+# First step is preprocessor based on column transformer
+# Second step is the estimator
 model_pipeline = Pipeline(
     steps=[
         ("preprocessor", preprocessor),
-        ("estimate",GeneralizedLinearRegressor(
-                family=TweedieDist, l1_ratio=1, fit_intercept=True)),
+        # Fit the GLM with the preprocessed data
+        (
+            "estimate",
+            GeneralizedLinearRegressor(
+                family=TweedieDist,
+                l1_ratio=1,  # l1 ratio = 1 gives lasso like regularization
+                fit_intercept=True,
+            ),
+        ),
     ]
     # TODO: Define pipeline steps here
 )
@@ -165,6 +193,7 @@ print(
 
 lgbm_estimate = LGBMRegressor(objective="tweedie")
 
+# LGBM handles raw data well so no need for preprocessor
 model_pipeline = Pipeline(steps=[("estimate", lgbm_estimate)])
 
 model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
@@ -193,8 +222,13 @@ print(
 # Note: Typically we tune many more parameters and larger grids,
 # but to save compute time here, we focus on getting the learning rate
 # and the number of estimators somewhat aligned -> tune learning_rate and n_estimators
-cv = GridSearchCV()
-cv.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
+cv = GridSearchCV(
+    estimator=LGBMRegressor(objective="tweedie", tweedie_variance_power=1.5),
+    param_grid={"learning_rate": [0.01, 0.1, 0.3], "n_estimators": [50, 100, 200]},
+    cv=5,
+    scoring="neg_mean_squared_error",
+)
+cv.fit(X_train_t, y_train_t, sample_weight=w_train_t)
 
 df_test["pp_t_lgbm"] = cv.best_estimator_.predict(X_test_t)
 df_train["pp_t_lgbm"] = cv.best_estimator_.predict(X_train_t)
@@ -221,7 +255,8 @@ print(
 )
 # %%
 # Let's compare the sorting of the pure premium predictions
-
+# Lorenz curve shows how the models assign expected claim amounts to policyholders
+# Closer to 'Oracle' - true amount - the better the model
 
 # Source: https://scikit-learn.org/stable/auto_examples/linear_model/plot_tweedie_regression_insurance_claims.html
 def lorenz_curve(y_true, y_pred, exposure):
