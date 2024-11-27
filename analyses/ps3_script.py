@@ -13,6 +13,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
 from ps3.data import create_sample_split, load_transform
+from evaluation import evaluate_predictions
 
 # %%
 import ps3.data._sample_split as sample_split
@@ -371,3 +372,14 @@ print(
         np.sum(df["Exposure"].values[test] * df_test["pp_t_lgbm_constrained"]),
     )
 )
+# Comparing Metric Values of the models
+y_pred_c = df_test["pp_t_lgbm_constrained"]
+y_pred_u = df_test["pp_t_lgbm"]
+y_true = df_test["PurePremium"]
+sample_weight = df_test["Exposure"]
+
+#Unconstrained model
+evaluate_predictions(y_pred_u, y_true, sample_weight=sample_weight)
+
+#Constrained model
+evaluate_predictions(y_pred_c, y_true, sample_weight=sample_weight)
