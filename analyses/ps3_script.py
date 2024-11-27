@@ -307,42 +307,86 @@ ax.set(
 ax.legend(loc="upper left")
 plt.plot()
 
+# BEGINNING OF PS4
+# 1) Monotonicity Constraints
+# The bonus malus feature tracks the claim history
+# of the customer and the price is expected to increase
+# if their bonus malus score gets worse and decrease if
+# their score improves. We will likely find this to hold
+# empirically in a simple model with enough exposure for
+# each bin, but the more complex our models get, i.e. the
+# more interactions they entail, the more likely it is
+# that there might be edge cases in which this monotonicity
+# breaks. Hence, we would like to include an explicit
+# monotonicity constraint for this feature.
+# TODO:Create a plot of average claims per BonusMalus group,
+# make sure to weigh them by exposure.
 # %%
-#Bin BonusMalus into quantiles (like we did with splines)
-df_test["Quantile"] = pd.cut(df_test["BonusMalus"], bins=4, labels=["B1", "B2", "B3", "B4"])
+average_claims = df.groupby("BonusMalus").apply(
+    lambda x: np.average(x["ClaimAmountCut"], weights=x["Exposure"])
+)
 
-# Compute weighted average claims for each quantile
-def weighted_avg(group):
-    return np.sum(group["ClaimAmountCut"] * group["Exposure"]) / np.sum(group["Exposure"])
-
-# Apply the weighted average calculation for each quantile
-weighted_average_claims = df_test.groupby("Quantile").apply(weighted_avg).reset_index(name="WeightedClaims")
-
-# Plot the weighted average claims per quantile
-plt.figure(figsize=(8, 5))
-sns.barplot(x="Quantile", y="WeightedClaims", data=weighted_average_claims, palette="viridis")
-plt.title("Weighted Average Claims Across Quantiles of BonusMalus", fontsize=14)
-plt.xlabel("BonusMalus Quantiles", fontsize=12)
-plt.ylabel("Weighted Average Claims", fontsize=12)
+fig, ax = plt.subplots(figsize=(12, 6))
+average_claims.plot(kind="bar", ax=ax)
+ax.set(
+    title="Average Claims per BonusMalus Group",
+    xlabel="BonusMalus Group",
+    ylabel="Average Claims (weighted by exposure)",
+)
+ax.set_xticks(range(len(average_claims)))
+ax.set_xticklabels(average_claims.index, rotation=45, ha="right", fontsize=8)
+plt.tight_layout()
 plt.show()
-#Output: See that as BonusMalus increases, average claim increases. If no monotonicty constraint, model could predict decreasing claims as BonusMalus increases
 
-#Check how many features we have in the preprocessor
-preprocessor.fit(X_train_t)
-feature_names = preprocessor.get_feature_names_out()
-print(len(feature_names)) #output: 60
+# Plot by quantiles of BonusMalus
+df["Quantile"] = pd.qcut(
+    df["BonusMalus"].rank(method="first"), q=4, labels=["Q1", "Q2", "Q3", "Q4"]
+)
 
-monotone_constraints = [1] + [0] * (len(feature_names) - 1)
-constrained_lgbm = LGBMRegressor(objective="tweedie", tweedie_variance_power=1.5, mc = monotone_constraints,  monotone_constraints_method="basic")
-model_pipeline = Pipeline(
-    steps = [("preprocessor", preprocessor),
-             ("estimate", constrained_lgbm)])
+quantile_avg_claims = df.groupby("Quantile").apply(
+    lambda x: np.average(x["ClaimAmountCut"], weights=x["Exposure"])
+)
+
+fig, ax = plt.subplots(figsize=(12, 6))
+quantile_avg_claims.plot(kind="bar", ax=ax)
+ax.set(
+    title="Average Claims per Quantile of BonusMalus",
+    xlabel="BonusMalus Quantile",
+    ylabel="Average Claims (weighted by exposure)",
+)
+ax.set_xticks(range(len(quantile_avg_claims)))
+ax.set_xticklabels(quantile_avg_claims.index, rotation=45, ha="right", fontsize=8)
+plt.tight_layout()
+plt.show()
+
+# TODO: What will/could happen if we do not include a monotonicity constraint?
+# Output: As BonusMalus increases, average claim (weighted by exposure)
+# tends to increase. If no monotonicty constraint, model could predict
+# decreasing claims as BonusMalus increases. This would be counterintuitive
+# as we argued prices tend to decrease with higher BonusMalus.
+
+# TODO: Create a new model pipeline or estimator called constrained_lgbm.
+# Introduce an increasing monotonicity constraint for BonusMalus. Note: We have to
+# provide a list of the same length as our features with 0s everywhere except
+# for BonusMalus where we put a 1.
+# %%
+monotone_constraints = [
+    1 if feature == "BonusMalus" else 0 for feature in X_train_t.columns
+]
+constrained_lgbm = LGBMRegressor(
+    objective="tweedie",
+    tweedie_variance_power=1.5,
+    monotone_constraints=monotone_constraints,
+)
+model_pipeline = Pipeline([("estimate", LGBMRegressor(objective="tweedie"))])
 
 model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
-
+# TODO: Cross-validate and predict using the best estimator. Save the predictions in
+# the column pp_t_lgbm_constrained.
+# %%
 param_grid = {
-    "estimate__learning_rate": [0.01, 0.1],
-    "estimate__n_estimators": [100, 200],
+    "estimate__learning_rate": [0.01, 0.05, 0.1],
+    "estimate__n_estimators": [50, 100, 200],
 }
 
 cv = GridSearchCV(model_pipeline, param_grid, cv=5, scoring="neg_mean_poisson_deviance")
@@ -353,14 +397,18 @@ df_train["pp_t_lgbm_constrained"] = cv.best_estimator_.predict(X_train_t)
 
 print(
     "training loss t_lgbm_constrained:  {}".format(
-        TweedieDist.deviance(y_train_t, df_train["pp_t_lgbm_constrained"], sample_weight=w_train_t)
+        TweedieDist.deviance(
+            y_train_t, df_train["pp_t_lgbm_constrained"], sample_weight=w_train_t
+        )
         / np.sum(w_train_t)
     )
 )
 
 print(
     "testing loss t_lgbm_constrained:  {}".format(
-        TweedieDist.deviance(y_test_t, df_test["pp_t_lgbm_constrained"], sample_weight=w_test_t)
+        TweedieDist.deviance(
+            y_test_t, df_test["pp_t_lgbm_constrained"], sample_weight=w_test_t
+        )
         / np.sum(w_test_t)
     )
 )
@@ -371,3 +419,5 @@ print(
         np.sum(df["Exposure"].values[test] * df_test["pp_t_lgbm_constrained"]),
     )
 )
+
+# Ex 2: Learning Curves
