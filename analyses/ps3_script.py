@@ -393,24 +393,90 @@ print(
 #%%
 # Plot learning curve
 # Refit the best estimator with eval_set
+
+# Originally, kernel kept dying when trying to fit the best model as said monotonic constraints were being added to categorical data
+# First, ensure only BonusMal has monotonic constraints
+preprocessor.fit(X_train_t)
+feature_names = (
+    preprocessor.get_feature_names_out()
+)  # I see that 0-4 is num_BonusMalus_sp_0, num_BonusMalus_sp_1 etc
+# I assume all of these need to have monotonic constraints
+def BonusMalus_constraint(feature_names):
+    monotone_constraints = np.zeros(len(feature_names))
+    for i, feature in enumerate(feature_names):
+        if "BonusMalus" in feature:
+            monotone_constraints[i] = 1
+
+    return monotone_constraints
+
+
+monotone_constraints = BonusMalus_constraint(feature_names)
+
+# Update the constrained LightGBM model with corrected monotonic constraints
+constrained_lgbm = LGBMRegressor(
+    objective="tweedie",
+    tweedie_variance_power=1.5,
+    monotone_constraints=monotone_constraints,
+    monotone_constraints_method="basic",
+)
+
+# Update the pipeline with the corrected model
+model_pipeline = Pipeline(
+    steps=[("preprocessor", preprocessor), ("estimate", constrained_lgbm)]
+)
+
+# Refit the model
+model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
+
+cv = GridSearchCV(model_pipeline, param_grid, cv=5, scoring="neg_mean_poisson_deviance")
+cv.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
+
 best_lgbm = cv.best_estimator_.named_steps["estimate"]
 
-# The code is crashing at this point
-# Reason: [LightGBM] [Fatal] The output cannot be monotone with respect to categorical features
-# best_lgbm.fit(
-#     X_train_t,
-#     y_train_t,
-#     sample_weight=w_train_t,
-#     eval_set=[(X_train_t, y_train_t), (X_test_t, y_test_t)],
-#     eval_sample_weight=[w_train_t, w_test_t],
-#     eval_metric="tweedie_deviance"
-# )
+# Reset model_pipeline with best_lgbm rather than constrained_lgbm
+model_pipeline = Pipeline(
+    steps=[("preprocessor", preprocessor), ("estimate", best_lgbm)]
+)
+model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
 
-# # Plot the learning curve
-# import lightgbm as lgb
-# lgb.plot_metric(best_lgbm, metric="tweedie_deviance")
-# plt.title("Learning Curve for Constrained LGBM Regressor")
-# plt.show()
+# Now fitting best_lgbm with eval_set
+# The previous error was being caused by the X_train_t being passed to the fit method
+# This was a problem because it hadn't been transformed by the preprocessor
+# Now accessing the preprocessing step of the pipeline to transform the data before fitting
+# I think can only be done in this ugly way
+best_lgbm.fit(
+    model_pipeline.named_steps["preprocessor"].transform(
+        X_train_t
+    ),  # Preprocessed train data
+    y_train_t,
+    sample_weight=w_train_t,
+    eval_set=[
+        (
+            model_pipeline.named_steps["preprocessor"].transform(X_train_t),
+            y_train_t,
+        ),
+        (
+            model_pipeline.named_steps["preprocessor"].transform(X_test_t),
+            y_test_t,
+        ),
+    ],
+    eval_sample_weight=[w_train_t, w_test_t],
+    eval_metric="tweedie_deviance",
+)
+
+import lightgbm as lgb
+
+lgb.plot_metric(best_lgbm, metric="tweedie")
+plt.title("Learning Curve for Constrained LGBM Regressor")
+plt.xlabel("Boosting Rounds")
+plt.ylabel("Tweedie Deviance")
+plt.show()
+
+# Describing graph
+# Valid_0 is the training set and Valid_1 is the test set
+# Moderate gap is expected as the model is trained on the training set
+# The decrease in deviance on the test set is a good sign that the model is generalizing well
+# Levels off at around 150 boosting rounds so might benefit from early stopping
 
 
 # %%
