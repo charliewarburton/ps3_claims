@@ -14,6 +14,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
 from ps3.data import create_sample_split, load_transform
+from evaluation._evaluate_predictions import evaluate_predictions
 
 # %%
 import ps3.data._sample_split as sample_split
