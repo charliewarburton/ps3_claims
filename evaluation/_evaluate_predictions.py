@@ -4,22 +4,7 @@ from typing import Optional, Union
 from numpy.typing import ArrayLike
 from sklearn.metrics import mean_absolute_error, mean_squared_error, auc
 
-# TODO: Write a function evaluate_predictions within the evaluation module,
-# which computes various metrics given the true outcome values and the model's predictions.
-# Steps:
-# 1. Create a module folder 'evaluation' and an empty '__init__.py' which we will
-#    use to register the function at the module level.
-# 2. Create a new file '_evaluate_predictions.py' in which you create the respective
-#    function which takes the predictions and actuals as input, as well as some
-#    sample weight (in our case exposure).
-# 3. Compute the bias of your estimates as deviation from the actual exposure
-#    adjusted mean.
-# 4. Compute the deviance.
-# 5. Compute the MAE and RMSE.
-# 6. Bonus: Compute the Gini coefficient as defined in the plot of the Lorenz
-#    curve at the bottom of ps3_script.
-# 7. Return a dataframe with the names of the metrics as index.
-# 8. Use the function and compare the constrained and unconstrained LGBM models.
+
 def evaluate_predictions(
     predictions: ArrayLike,
     actuals: ArrayLike,
@@ -36,6 +21,11 @@ def evaluate_predictions(
     Returns:
         metrics_df: DataFrame of evaluation metrics and their values
     """
+    predictions = np.asarray(predictions)
+    actuals = np.asarray(actuals)
+    if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight)
+
     if sample_weight is not None:
         # Bias (deviation from actual exposure adjusted mean)
         bias = np.average(predictions - actuals, weights=sample_weight)
@@ -52,6 +42,20 @@ def evaluate_predictions(
         # Root Mean Squared Error (RMSE)
         RMSE = np.sqrt(MSE)
 
+        # Gini coefficient calculation
+        # Sort by predictions
+        order = np.argsort(predictions)
+        ordered_actuals = actuals[order]
+        ordered_weights = sample_weight[order]
+
+        # Calculate cumulative proportions
+        cum_actuals = np.cumsum(ordered_actuals * ordered_weights)
+        cum_actuals = cum_actuals / cum_actuals[-1]
+        cum_population = np.linspace(0, 1, len(cum_actuals))
+
+        # Calculate Gini coefficient
+        gini = 1 - 2 * auc(cum_population, cum_actuals)
+
     else:
         # If no weights are provided, compute the simple mean
         bias = np.mean(predictions - actuals)
@@ -60,16 +64,24 @@ def evaluate_predictions(
         MSE = mean_squared_error(actuals, predictions)
         RMSE = np.sqrt(MSE)
 
+        # Gini coefficient calculation without weights
+        order = np.argsort(predictions)
+        ordered_actuals = actuals[order]
+        cum_actuals = np.cumsum(ordered_actuals)
+        cum_actuals = cum_actuals / cum_actuals[-1]
+        cum_population = np.linspace(0, 1, len(cum_actuals))
+        gini = 1 - 2 * auc(cum_population, cum_actuals)
+
     metrics = {
         "Bias": bias,
         "Deviance": deviance,
         "MAE": MAE,
         "MSE": MSE,
         "RMSE": RMSE,
+        "Gini": gini,
     }
 
     metrics_df = pd.DataFrame.from_dict(metrics, orient="index", columns=["Value"])
-
     metrics_df["Value"] = metrics_df["Value"].round(decimals=2)
 
     return metrics_df

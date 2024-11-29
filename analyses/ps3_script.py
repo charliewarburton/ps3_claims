@@ -7,20 +7,27 @@ from dask_ml.preprocessing import Categorizer
 from glum import GeneralizedLinearRegressor, TweedieDistribution
 from lightgbm import LGBMRegressor
 from lightgbm import plot_metric
+import dalex as dx
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import auc
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
-from ps3.data import create_sample_split, load_transform
-from evaluation._evaluate_predictions import evaluate_predictions
+import os
+import sys
 
-# %%
-import ps3.data._sample_split as sample_split
+# Add the project root to sys.path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(project_root)
+
 from importlib import reload
+import evaluation._evaluate_predictions as ep
 
-reload(sample_split)
+reload(ep)
+from evaluation._evaluate_predictions import evaluate_predictions
+from ps3.data import create_sample_split, load_transform
+import ps3.data._sample_split as sample_split
 
 # %%
 # load data
@@ -391,11 +398,13 @@ param_grid = {
     "estimate__n_estimators": [50, 100, 200],
 }
 
-cv = GridSearchCV(model_pipeline, param_grid, cv=5, scoring="neg_mean_poisson_deviance")
-cv.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
+cv_constrained = GridSearchCV(
+    model_pipeline, param_grid, cv=5, scoring="neg_mean_poisson_deviance"
+)
+cv_constrained.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
 
-df_test["pp_t_lgbm_constrained"] = cv.best_estimator_.predict(X_test_t)
-df_train["pp_t_lgbm_constrained"] = cv.best_estimator_.predict(X_train_t)
+df_test["pp_t_lgbm_constrained"] = cv_constrained.best_estimator_.predict(X_test_t)
+df_train["pp_t_lgbm_constrained"] = cv_constrained.best_estimator_.predict(X_train_t)
 
 print(
     "training loss t_lgbm_constrained:  {}".format(
@@ -430,8 +439,8 @@ print(
 # 1. Refit the best constrained lgbm estimator from the cross-validation and
 # provide the tuples of the test and train dataset to the estimator via eval_set.
 # %%
-best_estimator = cv.best_estimator_.named_steps["estimate"]
-best_estimator.fit(
+best_estimator_constrained = cv_constrained.best_estimator_.named_steps["estimate"]
+best_estimator_constrained.fit(
     X_train_t,
     y_train_t,
     sample_weight=w_train_t,
@@ -440,7 +449,7 @@ best_estimator.fit(
 # 2. Plot the learning curve by running lgb.plot_metric on the estimator (either
 # the estimator directly or as last step of the pipeline).
 # %%
-plot_metric(best_estimator.evals_result_)
+plot_metric(best_estimator_constrained.evals_result_)
 plt.show()
 # 3. Observations on the estimator's tuning:
 # The learning curve shows that the training error decreases steadily
@@ -449,3 +458,145 @@ plt.show()
 # as the model performs better on the training data than on the validation data.
 # To optimize, consider adjusting hyperparameters or
 # using regularization to improve generalization.
+
+# %%
+# Compare constrained and unconstrained LGBM models using evaluate_predictions
+print("\nEvaluation Metrics for Unconstrained LGBM:")
+unconstrained_metrics = evaluate_predictions(
+    df_test["pp_t_lgbm"], df_test["PurePremium"], sample_weight=df_test["Exposure"]
+)
+print(unconstrained_metrics)
+
+print("\nEvaluation Metrics for Constrained LGBM:")
+constrained_metrics = evaluate_predictions(
+    df_test["pp_t_lgbm_constrained"],
+    df_test["PurePremium"],
+    sample_weight=df_test["Exposure"],
+)
+print(constrained_metrics)
+
+# Compare metrics side by side
+comparison = pd.concat(
+    [
+        unconstrained_metrics.rename(columns={"Value": "Unconstrained"}),
+        constrained_metrics.rename(columns={"Value": "Constrained"}),
+    ],
+    axis=1,
+)
+print("\nSide by side comparison:")
+print(comparison)
+
+# Evaluation Metrics for Unconstrained LGBM:
+#                 Value
+# Bias           -19.92
+# Deviance  11558992.66
+# MAE            245.56
+# MSE       11558992.66
+# RMSE           3399.85
+# Gini             0.26
+
+# Evaluation Metrics for Constrained LGBM:
+#                 Value
+# Bias           -17.00
+# Deviance  11561650.88
+# MAE            248.97
+# MSE       11561650.88
+# RMSE          3400.24
+# Gini             0.26
+
+# The constrained model helps reduce overfitting by
+# achieving a lower bias compared to the unconstrained model,
+# indicating better generalization to unseen data.
+# Although there is a slight increase in other error metrics,
+# the reduction in bias suggests improved accuracy and
+# reliability of predictions.
+
+# Ex 4: Illustrate the marginal effects via Partial Dependence Plots (PDPs)
+# Plot the PDPs of all features and compare the PDPs between
+# the unconstrained and constrained LGBM.
+# Use the DALEX package.
+# Steps:
+# 1. Define an explainer object using
+# the constrained LGBM model, data, and features.
+# 2. Compute the marginal effects using model_profile and plot the PDPs.
+# %%
+constrained_explainer = dx.Explainer(
+    model=cv_constrained.best_estimator_.named_steps["estimate"],
+    data=X_test_t,
+    y=y_test_t,
+    predict_function=lambda m, d: m.predict(d),  # Predict function
+    label="Constrained LGBM",
+)
+
+# Define explainer for unconstrained LGBM
+unconstrained_explainer = dx.Explainer(
+    model=cv.best_estimator_,
+    data=X_test_t,
+    y=y_test_t,
+    predict_function=lambda m, d: m.predict(d),  # Predict function
+    label="Unconstrained LGBM",
+)
+
+# %%
+# Compute model profiles (Partial Dependence Profiles)
+constrained_profile = constrained_explainer.model_profile(type="partial")
+unconstrained_profile = unconstrained_explainer.model_profile(type="partial")
+
+# Plot PDPs for the constrained model
+# %%
+constrained_profile.plot()
+# %%
+unconstrained_profile.plot()
+# The constrained model has a smoother PDP, indicating that it is less sensitive to
+# individual data points and may generalize better. It also shows a more consistent
+# relationship between BonusMalus and PurePremium across different quantiles.
+
+# Ex 5: SHAP (SHapley Additive exPlanations) values
+# Sometimes we want to understand model predictions on a more granular level,
+# particularly, what features are driving predictions upwards or downwards and
+# by how much. This interpretation demands additivity in the feature effects and
+# this is exactly what SHAP (SHapley Additive exPlanations) values provide.
+
+# Get SHAP values for a single observation
+# %%
+observation = X_test_t.iloc[0:1]
+
+# Calculate SHAP values for constrained model
+shap_constrained = constrained_explainer.predict_parts(observation, type="shap")
+
+# Calculate SHAP values for unconstrained model
+shap_unconstrained = unconstrained_explainer.predict_parts(observation, type="shap")
+
+# Plot SHAP values
+shap_constrained.plot()
+shap_unconstrained.plot()
+
+# Observations:
+# 1. BonusMalus Impact:
+#    - In both models, the "BonusMalus" variable has the largest negative contribution
+#      though the constrained model shows a more significant impact (-35.455 vs. -30.286).
+#      This is expectable given the specified monotonicity constraint adding extra information.
+
+# 2. Driver Age (DrivAge):
+#    - It positively contributes significantly in both models.
+#      However, the constrained model amplifies
+#      its effect (+11.997 compared to +10.986).
+
+# 3. Regional and Density Effects:
+#    - Region and density factors are impactful, but their directions differ
+#      slightly between the two models.
+#      For instance, "Density" is slightly more negative in the constrained model,
+#      while "Region" shows a stronger positive contribution.
+
+# 4. VehBrand and VehGas:
+#    - Vehicle brand and fuel type contribute positively in both cases.
+#      The unconstrained model, however, shows greater sensitivity
+#     (+5.707 for "VehGas" compared to +1.349).
+
+# 5. Feature Suppression:
+#    - The constrained model appears to suppress minor contributions from less impactful variables
+#      (e.g., "Area")
+
+# Overall:
+# The constrained LightGBM seems to enforce stronger focus on key variables ("BonusMalus," "DrivAge")
+# while reducing the impact of less relevant features.

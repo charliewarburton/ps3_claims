@@ -5,6 +5,7 @@ channels:
 dependencies:
   # defaults
   - python>=3.8
+  - nbformat>=4.2.0
   - pip
   - pre-commit
   - pytest>=6  # Adds --import-mode option
@@ -12,7 +13,7 @@ dependencies:
   - setuptools-scm
   # data
   - pandas
-  - numpy
+  - numpy<2
   - dask-ml
   - ydata-profiling
   # interactive
@@ -23,3 +24,4 @@ dependencies:
   - glum
   - lightgbm
   - scikit-learn
+  - dalex
