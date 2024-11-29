@@ -6,6 +6,7 @@ import seaborn as sns
 from dask_ml.preprocessing import Categorizer
 from glum import GeneralizedLinearRegressor, TweedieDistribution
 from lightgbm import LGBMRegressor
+from lightgbm import plot_metric
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import auc
 from sklearn.model_selection import GridSearchCV
@@ -421,3 +422,29 @@ print(
 )
 
 # Ex 2: Learning Curves
+# TODO: Based on the cross-validated constrained LGBMRegressor object,
+# plot a learning curve which is showing the convergence of the score
+# on the train and test set.
+# Steps:
+# 1. Refit the best constrained lgbm estimator from the cross-validation and
+# provide the tuples of the test and train dataset to the estimator via eval_set.
+# %%
+best_estimator = cv.best_estimator_.named_steps["estimate"]
+best_estimator.fit(
+    X_train_t,
+    y_train_t,
+    sample_weight=w_train_t,
+    eval_set=[(X_train_t, y_train_t), (X_test_t, y_test_t)],
+)
+# 2. Plot the learning curve by running lgb.plot_metric on the estimator (either
+# the estimator directly or as last step of the pipeline).
+# %%
+plot_metric(best_estimator.evals_result_)
+plt.show()
+# 3. Observations on the estimator's tuning:
+# The learning curve shows that the training error decreases steadily
+# while the validation error remains higher.
+# This indicates potential overfitting,
+# as the model performs better on the training data than on the validation data.
+# To optimize, consider adjusting hyperparameters or
+# using regularization to improve generalization.
