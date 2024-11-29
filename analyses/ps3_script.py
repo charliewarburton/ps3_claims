@@ -6,6 +6,7 @@ import seaborn as sns
 from dask_ml.preprocessing import Categorizer
 from glum import GeneralizedLinearRegressor, TweedieDistribution
 from lightgbm import LGBMRegressor
+from lightgbm import plot_metric
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import auc
 from sklearn.model_selection import GridSearchCV
@@ -309,35 +310,49 @@ ax.legend(loc="upper left")
 plt.plot()
 
 # %%
-#Bin BonusMalus into quantiles (like we did with splines)
-df_test["Quantile"] = pd.cut(df_test["BonusMalus"], bins=4, labels=["B1", "B2", "B3", "B4"])
+# Bin BonusMalus into quantiles (like we did with splines)
+df_test["Quantile"] = pd.cut(
+    df_test["BonusMalus"], bins=4, labels=["B1", "B2", "B3", "B4"]
+)
 
 # Compute weighted average claims for each quantile
 def weighted_avg(group):
-    return np.sum(group["ClaimAmountCut"] * group["Exposure"]) / np.sum(group["Exposure"])
+    return np.sum(group["ClaimAmountCut"] * group["Exposure"]) / np.sum(
+        group["Exposure"]
+    )
+
 
 # Apply the weighted average calculation for each quantile
-weighted_average_claims = df_test.groupby("Quantile").apply(weighted_avg).reset_index(name="WeightedClaims")
+weighted_average_claims = (
+    df_test.groupby("Quantile").apply(weighted_avg).reset_index(name="WeightedClaims")
+)
 
 # Plot the weighted average claims per quantile
 plt.figure(figsize=(8, 5))
-sns.barplot(x="Quantile", y="WeightedClaims", data=weighted_average_claims, palette="viridis")
+sns.barplot(
+    x="Quantile", y="WeightedClaims", data=weighted_average_claims, palette="viridis"
+)
 plt.title("Weighted Average Claims Across Quantiles of BonusMalus", fontsize=14)
 plt.xlabel("BonusMalus Quantiles", fontsize=12)
 plt.ylabel("Weighted Average Claims", fontsize=12)
 plt.show()
-#Output: See that as BonusMalus increases, average claim increases. If no monotonicty constraint, model could predict decreasing claims as BonusMalus increases
+# Output: See that as BonusMalus increases, average claim increases. If no monotonicty constraint, model could predict decreasing claims as BonusMalus increases
 
-#Check how many features we have in the preprocessor
+# Check how many features we have in the preprocessor
 preprocessor.fit(X_train_t)
 feature_names = preprocessor.get_feature_names_out()
-print(len(feature_names)) #output: 60
+print(len(feature_names))  # output: 60
 
 monotone_constraints = [1] + [0] * (len(feature_names) - 1)
-constrained_lgbm = LGBMRegressor(objective="tweedie", tweedie_variance_power=1.5, mc = monotone_constraints,  monotone_constraints_method="basic")
+constrained_lgbm = LGBMRegressor(
+    objective="tweedie",
+    tweedie_variance_power=1.5,
+    mc=monotone_constraints,
+    monotone_constraints_method="basic",
+)
 model_pipeline = Pipeline(
-    steps = [("preprocessor", preprocessor),
-             ("estimate", constrained_lgbm)])
+    steps=[("preprocessor", preprocessor), ("estimate", constrained_lgbm)]
+)
 
 model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
 
@@ -354,14 +369,18 @@ df_train["pp_t_lgbm_constrained"] = cv.best_estimator_.predict(X_train_t)
 
 print(
     "training loss t_lgbm_constrained:  {}".format(
-        TweedieDist.deviance(y_train_t, df_train["pp_t_lgbm_constrained"], sample_weight=w_train_t)
+        TweedieDist.deviance(
+            y_train_t, df_train["pp_t_lgbm_constrained"], sample_weight=w_train_t
+        )
         / np.sum(w_train_t)
     )
 )
 
 print(
     "testing loss t_lgbm_constrained:  {}".format(
-        TweedieDist.deviance(y_test_t, df_test["pp_t_lgbm_constrained"], sample_weight=w_test_t)
+        TweedieDist.deviance(
+            y_test_t, df_test["pp_t_lgbm_constrained"], sample_weight=w_test_t
+        )
         / np.sum(w_test_t)
     )
 )
@@ -372,14 +391,30 @@ print(
         np.sum(df["Exposure"].values[test] * df_test["pp_t_lgbm_constrained"]),
     )
 )
-# Comparing Metric Values of the models
-y_pred_c = df_test["pp_t_lgbm_constrained"]
-y_pred_u = df_test["pp_t_lgbm"]
-y_true = df_test["PurePremium"]
-sample_weight = df_test["Exposure"]
-
-#Unconstrained model
-evaluate_predictions(y_pred_u, y_true, sample_weight=sample_weight)
-
-#Constrained model
-evaluate_predictions(y_pred_c, y_true, sample_weight=sample_weight)
+# Ex 2: Learning Curves
+# TODO: Based on the cross-validated constrained LGBMRegressor object,
+# plot a learning curve which is showing the convergence of the score
+# on the train and test set.
+# Steps:
+# 1. Refit the best constrained lgbm estimator from the cross-validation and
+# provide the tuples of the test and train dataset to the estimator via eval_set.
+# %%
+best_estimator = cv.best_estimator_.named_steps["estimate"]
+best_estimator.fit(
+    X_train_t,
+    y_train_t,
+    sample_weight=w_train_t,
+    eval_set=[(X_train_t, y_train_t), (X_test_t, y_test_t)],
+)
+# 2. Plot the learning curve by running lgb.plot_metric on the estimator (either
+# the estimator directly or as last step of the pipeline).
+# %%
+plot_metric(best_estimator.evals_result_)
+plt.show()
+# 3. Observations on the estimator's tuning:
+# The learning curve shows that the training error decreases steadily
+# while the validation error remains higher.
+# This indicates potential overfitting,
+# as the model performs better on the training data than on the validation data.
+# To optimize, consider adjusting hyperparameters or
+# using regularization to improve generalization.
