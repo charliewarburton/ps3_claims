@@ -526,8 +526,8 @@ print(comparison)
 # %%
 constrained_explainer = dx.Explainer(
     model=cv_constrained.best_estimator_.named_steps["estimate"],
-    data=X_test_t,
-    y=y_test_t,
+    data=X_train_t,
+    y=y_train_t,
     predict_function=lambda m, d: m.predict(d),  # Predict function
     label="Constrained LGBM",
 )
@@ -535,8 +535,8 @@ constrained_explainer = dx.Explainer(
 # Define explainer for unconstrained LGBM
 unconstrained_explainer = dx.Explainer(
     model=cv.best_estimator_,
-    data=X_test_t,
-    y=y_test_t,
+    data=X_train_t,
+    y=y_train_t,
     predict_function=lambda m, d: m.predict(d),  # Predict function
     label="Unconstrained LGBM",
 )
@@ -563,7 +563,7 @@ unconstrained_profile.plot()
 
 # Get SHAP values for a single observation
 # %%
-observation = X_test_t.iloc[0:1]
+observation = X_train_t.iloc[0:1]
 
 # Calculate SHAP values for constrained model
 shap_constrained = constrained_explainer.predict_parts(observation, type="shap")
@@ -578,13 +578,13 @@ shap_unconstrained.plot()
 # Observations:
 # 1. BonusMalus Impact:
 #    - In both models, the "BonusMalus" variable has the largest negative contribution
-#      though the constrained model shows a more significant impact (-39.129 vs. -30.567).
+#      though the constrained model shows a more significant impact.
 #      This is expectable given the specified monotonicity constraint adding extra information.
 
 # 2. Driver Age (DrivAge):
 #    - It positively contributes significantly in both models.
 #      However, the constrained model amplifies
-#      its effect (+13.882 compared to +12.52).
+#      its effect.
 
 # 3. Regional and Density Effects:
 #    - Region and density factors are impactful, but their directions differ
@@ -594,8 +594,7 @@ shap_unconstrained.plot()
 
 # 4. VehBrand and VehGas:
 #    - Vehicle brand and fuel type contribute positively in both cases.
-#      The unconstrained model, however, shows greater sensitivity
-#     (+2.76 for "VehGas" compared to +2.009).
+#      The unconstrained model, however, shows greater sensitivity.
 
 # 5. Feature Suppression:
 #    - The constrained model appears to suppress minor contributions from less impactful variables
