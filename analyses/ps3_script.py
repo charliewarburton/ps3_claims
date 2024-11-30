@@ -396,6 +396,8 @@ model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
 param_grid = {
     "estimate__learning_rate": [0.01, 0.05, 0.1],
     "estimate__n_estimators": [50, 100, 200],
+    "estimate__tweedie_variance_power": [1.5],
+    "estimate__monotone_constraints": [monotone_constraints],
 }
 
 cv_constrained = GridSearchCV(
@@ -445,6 +447,8 @@ best_estimator_constrained.fit(
     y_train_t,
     sample_weight=w_train_t,
     eval_set=[(X_train_t, y_train_t), (X_test_t, y_test_t)],
+    eval_metric="tweedie",  # Using tweedie metric since we're using a Tweedie model
+    eval_sample_weight=[w_train_t, w_test_t],
 )
 # 2. Plot the learning curve by running lgb.plot_metric on the estimator (either
 # the estimator directly or as last step of the pipeline).
@@ -497,12 +501,12 @@ print(comparison)
 
 # Evaluation Metrics for Constrained LGBM:
 #                 Value
-# Bias           -17.00
-# Deviance  11561650.88
-# MAE            248.97
-# MSE       11561650.88
-# RMSE          3400.24
-# Gini             0.26
+# Bias           -15.65
+# Deviance  11560952.66
+# MAE             250.69
+# MSE       11560952.66
+# RMSE          3400.14
+# Gini             0.24
 
 # The constrained model helps reduce overfitting by
 # achieving a lower bias compared to the unconstrained model,
@@ -549,7 +553,7 @@ constrained_profile.plot()
 unconstrained_profile.plot()
 # The constrained model has a smoother PDP, indicating that it is less sensitive to
 # individual data points and may generalize better. It also shows a more consistent
-# relationship between BonusMalus and PurePremium across different quantiles.
+# relationship between BonusMalus and PurePremium across different quantiles (without the kinks).
 
 # Ex 5: SHAP (SHapley Additive exPlanations) values
 # Sometimes we want to understand model predictions on a more granular level,
@@ -574,13 +578,13 @@ shap_unconstrained.plot()
 # Observations:
 # 1. BonusMalus Impact:
 #    - In both models, the "BonusMalus" variable has the largest negative contribution
-#      though the constrained model shows a more significant impact (-35.455 vs. -30.286).
+#      though the constrained model shows a more significant impact (-39.129 vs. -30.567).
 #      This is expectable given the specified monotonicity constraint adding extra information.
 
 # 2. Driver Age (DrivAge):
 #    - It positively contributes significantly in both models.
 #      However, the constrained model amplifies
-#      its effect (+11.997 compared to +10.986).
+#      its effect (+13.882 compared to +12.52).
 
 # 3. Regional and Density Effects:
 #    - Region and density factors are impactful, but their directions differ
@@ -591,7 +595,7 @@ shap_unconstrained.plot()
 # 4. VehBrand and VehGas:
 #    - Vehicle brand and fuel type contribute positively in both cases.
 #      The unconstrained model, however, shows greater sensitivity
-#     (+5.707 for "VehGas" compared to +1.349).
+#     (+2.76 for "VehGas" compared to +2.009).
 
 # 5. Feature Suppression:
 #    - The constrained model appears to suppress minor contributions from less impactful variables
